@@ -10,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,7 +42,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,11 +51,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.spshin.phone.model.DailyUsageSummary
@@ -113,8 +120,8 @@ private fun PhoneProtectApp(viewModel: MainViewModel = viewModel()) {
         }
     }
 
-    val gradient = Brush.verticalGradient(
-        listOf(Color(0xFFF5F1E8), Color(0xFFE2E8F0), Color(0xFFF8FAFC))
+    val pageBackground = Brush.verticalGradient(
+        listOf(Color(0xFFF7F2E8), Color(0xFFEFF4FB), Color(0xFFF8FAFC))
     )
 
     Scaffold(
@@ -124,15 +131,12 @@ private fun PhoneProtectApp(viewModel: MainViewModel = viewModel()) {
         Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .background(gradient)
+                .background(pageBackground)
                 .padding(innerPadding),
             color = Color.Transparent
         ) {
             when {
-                settings.role == UserRole.NONE -> SetupScreen(
-                    onSave = viewModel::saveSetup
-                )
-
+                settings.role == UserRole.NONE -> SetupScreen(onSave = viewModel::saveSetup)
                 settings.role == UserRole.PARENT && !isParentUnlocked -> ParentUnlockScreen(
                     onUnlock = viewModel::unlockParent,
                     onReset = viewModel::resetSetup
@@ -167,19 +171,19 @@ private fun SetupScreen(
 
     AppPage {
         HeaderBlock(
-            title = "폰 지킴이",
-            subtitle = "가족 코드는 내부적으로 SGF로 고정되어 자동 연결됩니다."
+            title = "신씨 폰지킴",
+            subtitle = "가족 코드는 내부적으로 SGF로 고정되어 있고, 부모 기기와 자녀 기기는 같은 앱에서 역할만 나눠 사용합니다."
         )
         HighlightCard(
-            title = "앱 역할 선택",
-            body = "같은 앱을 자녀폰과 부모폰에 설치한 뒤 역할만 다르게 설정합니다."
+            title = "기기 역할 선택",
+            body = "먼저 이 휴대폰이 자녀용인지 부모용인지 정해주세요."
         ) {
             RoleOption("자녀 기기", role == UserRole.CHILD) { role = UserRole.CHILD }
             RoleOption("부모 기기", role == UserRole.PARENT) { role = UserRole.PARENT }
         }
         HighlightCard(
             title = "기본 연결 정보",
-            body = "가족 코드는 자동으로 SGF가 사용됩니다. 자녀 기기만 이름을 입력하면 됩니다."
+            body = "가족 코드는 이미 연결되어 있습니다. 자녀 기기만 이름을 적어두면 부모 화면에서 구분하기 쉬워집니다."
         ) {
             if (role == UserRole.CHILD) {
                 OutlinedTextField(
@@ -195,6 +199,7 @@ private fun SetupScreen(
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
+
             Button(
                 onClick = {
                     onSave(
@@ -222,11 +227,11 @@ private fun ParentUnlockScreen(
     AppPage(verticalArrangement = Arrangement.Center) {
         HeaderBlock(
             title = "부모 전용 잠금",
-            subtitle = "부모 앱은 비밀번호 입력 후에만 열리도록 설정되어 있습니다."
+            subtitle = "부모 모드는 등록된 비밀번호를 입력해야 열 수 있습니다."
         )
         HighlightCard(
             title = "보호자 인증",
-            body = "등록된 비밀번호를 입력해 주세요."
+            body = "비밀번호를 입력해 대시보드를 열어주세요."
         ) {
             OutlinedTextField(
                 value = password,
@@ -268,96 +273,170 @@ private fun DashboardScreen(
     onReset: () -> Unit,
     onUpdatePolicy: (RestrictionPolicy) -> Unit
 ) {
-    AppPage {
-        HeaderBlock(
-            title = if (settings.role == UserRole.CHILD) {
-                "${settings.childName.ifBlank { "자녀" }} 기기"
-            } else {
-                "부모 대시보드"
-            },
-            subtitle = "가족 코드 SGF  |  제한 시간 ${settings.restrictionPolicy.label()}"
-        )
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+    ) {
+        HeroFamilyBanner()
 
-        StatusStrip(
-            hasUsageAccess = hasUsageAccess,
-            remoteReady = remoteReady,
-            isRefreshing = isRefreshing
-        )
-
-        HighlightCard(
-            title = "백그라운드 확인",
-            body = "역할 설정이 끝난 뒤에는 자녀가 앱을 열지 않아도 15분 주기로 사용 기록과 제한 시간 경고를 동기화합니다."
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)
         ) {
-            Text(
-                text = "휴대폰 재부팅 후에도 자동으로 동기화를 다시 시작하도록 설정되어 있습니다.",
-                style = MaterialTheme.typography.bodyMedium
+            HeaderBlock(
+                title = if (settings.role == UserRole.CHILD) {
+                    "${settings.childName.ifBlank { "자녀" }} 기기"
+                } else {
+                    "부모 대시보드"
+                },
+                subtitle = "가족 코드 SGF  |  제한 시간 ${settings.restrictionPolicy.label()}"
             )
-        }
 
-        if (!hasUsageAccess) {
+            StatusStrip(
+                hasUsageAccess = hasUsageAccess,
+                remoteReady = remoteReady,
+                isRefreshing = isRefreshing
+            )
+
             HighlightCard(
-                title = "사용량 접근 권한 필요",
-                body = "주간 사용 시간과 제한 시간 감지는 Android 사용량 접근 권한이 있어야 동작합니다."
+                title = "백그라운드 확인",
+                body = "자녀가 앱을 켜두지 않아도 15분 주기로 기록과 제한 시간 감지를 계속 동기화하도록 설정되어 있습니다."
             ) {
-                Button(
-                    onClick = onOpenUsageAccess,
-                    modifier = Modifier.fillMaxWidth()
+                Text(
+                    text = "휴대폰이 다시 시작된 뒤에도 자동으로 동기화가 재개되도록 구성되어 있습니다.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+
+            if (!hasUsageAccess) {
+                HighlightCard(
+                    title = "사용량 접근 권한 필요",
+                    body = "주간 사용 기록과 제한 시간 감지는 Android 사용량 접근 권한이 있어야 정확하게 동작합니다."
                 ) {
-                    Text("사용량 접근 권한 열기")
+                    Button(
+                        onClick = onOpenUsageAccess,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("사용량 접근 권한 열기")
+                    }
+                }
+            }
+
+            ControlRow(
+                onRefresh = onRefresh,
+                onReset = onReset,
+                refreshLabel = if (settings.role == UserRole.CHILD) "지금 동기화" else "새로고침"
+            )
+
+            if (settings.role == UserRole.PARENT) {
+                HighlightCard(
+                    title = "자녀 사용 금지 시간",
+                    body = "여기서 설정한 시간은 Firebase를 통해 저장되고 자녀 기기의 감지 기준에도 반영됩니다."
+                ) {
+                    RestrictionPolicyEditor(
+                        policy = settings.restrictionPolicy,
+                        editable = true,
+                        onSave = onUpdatePolicy
+                    )
+                }
+            } else {
+                HighlightCard(
+                    title = "현재 제한 시간",
+                    body = "이 시간대에 휴대폰 사용이 감지되면 부모 기기에 경고가 전송됩니다."
+                ) {
+                    Text(
+                        text = settings.restrictionPolicy.label(),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            if (settings.role == UserRole.CHILD) {
+                HighlightCard(
+                    title = "주간 사용 기록",
+                    body = "날짜별 첫 사용 시각, 마지막 사용 시각, 총 사용 시간을 확인할 수 있습니다."
+                ) {
+                    UsageSummaryList(
+                        summaries = localUsage,
+                        policy = settings.restrictionPolicy
+                    )
+                }
+            } else {
+                HighlightCard(
+                    title = "자녀 제한 시간 경고",
+                    body = "제한 시간에 사용이 감지되면 여기에 최근 경고가 쌓입니다."
+                ) {
+                    AlertList(alerts)
+                }
+
+                HighlightCard(
+                    title = "자녀 주간 사용 기록",
+                    body = "자녀 기기에서 동기화된 최근 7일 사용 기록을 확인할 수 있습니다."
+                ) {
+                    RemoteUsageList(
+                        remoteUsage = remoteUsage,
+                        policy = settings.restrictionPolicy
+                    )
                 }
             }
         }
+    }
+}
 
-        ControlRow(
-            onRefresh = onRefresh,
-            onReset = onReset,
-            refreshLabel = if (settings.role == UserRole.CHILD) "지금 동기화" else "새로고침"
-        )
+@Composable
+private fun HeroFamilyBanner() {
+    val configuration = LocalConfiguration.current
+    val bannerHeight = (configuration.screenHeightDp / 6).dp
 
-        if (settings.role == UserRole.PARENT) {
-            HighlightCard(
-                title = "자녀 사용 금지 시간",
-                body = "부모 기기에서 제한 시간을 바꾸면 자녀 기기의 백그라운드 감지 기준도 함께 변경됩니다."
-            ) {
-                RestrictionPolicyEditor(
-                    policy = settings.restrictionPolicy,
-                    editable = true,
-                    onSave = onUpdatePolicy
-                )
-            }
-        } else {
-            HighlightCard(
-                title = "현재 제한 시간",
-                body = "이 시간대에 자녀 기기 화면 사용이 감지되면 부모 기기로 경고가 전달됩니다."
-            ) {
-                Text(
-                    text = settings.restrictionPolicy.label(),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(bannerHeight)
+            .background(Color.White)
+    ) {
+        Box(
+            modifier = Modifier
+                .weight(0.44f)
+                .fillMaxSize()
+                .background(Color.White),
+            contentAlignment = Alignment.TopStart
+        ) {
+            Image(
+                painter = painterResource(R.drawable.family_banner),
+                contentDescription = "가족 배너",
+                contentScale = ContentScale.Fit,
+                alignment = Alignment.TopStart,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(4.dp)
+            )
         }
 
-        if (settings.role == UserRole.CHILD) {
-            HighlightCard(
-                title = "주간 사용 기록",
-                body = "날짜별 처음 사용 시각, 마지막 사용 시각, 총 사용 시간을 표시합니다."
-            ) {
-                UsageSummaryList(localUsage, settings.restrictionPolicy)
-            }
-        } else {
-            HighlightCard(
-                title = "자녀 제한 시간 경고",
-                body = "제한 시간 안에 자녀 사용이 감지되면 여기에 기록되고 부모 기기에도 알림이 뜹니다."
-            ) {
-                AlertList(alerts)
-            }
-            HighlightCard(
-                title = "자녀 주간 사용 기록",
-                body = "자녀 기기가 백그라운드로 올린 최근 7일 사용 기록입니다."
-            ) {
-                RemoteUsageList(remoteUsage, settings.restrictionPolicy)
-            }
+        Box(
+            modifier = Modifier
+                .weight(0.56f)
+                .fillMaxSize()
+                .background(Color.White)
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Text(
+                text = "신씨\n폰지킴",
+                textAlign = TextAlign.Start,
+                lineHeight = 34.sp,
+                style = MaterialTheme.typography.headlineLarge.copy(
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.5.sp,
+                    brush = Brush.verticalGradient(
+                        listOf(Color(0xFF2563EB), Color(0xFFF59E0B))
+                    ),
+                    shadow = Shadow(
+                        color = Color(0x33000000),
+                        blurRadius = 14f
+                    )
+                )
+            )
         }
     }
 }
@@ -399,6 +478,7 @@ private fun RestrictionPolicyEditor(
                 .padding(start = 8.dp)
         )
     }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -423,7 +503,7 @@ private fun RestrictionPolicyEditor(
     }
 
     Text(
-        text = "예시: 22:00 ~ 06:00 처럼 자정을 넘기는 시간도 가능합니다.",
+        text = "예시: 22:00부터 06:00까지처럼 자정을 넘기는 시간도 가능합니다.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(top = 12.dp)
@@ -511,10 +591,14 @@ private fun HighlightCard(
             .fillMaxWidth()
             .padding(bottom = 16.dp),
         shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.88f))
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.9f))
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
-            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold
+            )
             Text(
                 text = body,
                 style = MaterialTheme.typography.bodyMedium,
@@ -527,7 +611,11 @@ private fun HighlightCard(
 }
 
 @Composable
-private fun RoleOption(title: String, selected: Boolean, onSelect: () -> Unit) {
+private fun RoleOption(
+    title: String,
+    selected: Boolean,
+    onSelect: () -> Unit
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -580,7 +668,10 @@ private fun ControlRow(
             .fillMaxWidth()
             .padding(bottom = 16.dp)
     ) {
-        Button(onClick = onRefresh, modifier = Modifier.weight(1f)) {
+        Button(
+            onClick = onRefresh,
+            modifier = Modifier.weight(1f)
+        ) {
             Text(refreshLabel)
         }
         OutlinedButton(
@@ -600,9 +691,10 @@ private fun UsageSummaryList(
     policy: RestrictionPolicy
 ) {
     if (summaries.isEmpty()) {
-        EmptyState("권한 허용 후 새로고침하면 최근 7일 사용 기록이 표시됩니다.")
+        EmptyState("사용량 권한을 허용하고 새로고침하면 최근 7일 사용 기록이 여기에 표시됩니다.")
         return
     }
+
     summaries.sortedByDescending { it.date }.forEach { summary ->
         SummaryRow(
             title = summary.date.format(DateTimeFormatter.ofPattern("M월 d일")),
@@ -621,9 +713,10 @@ private fun RemoteUsageList(
     policy: RestrictionPolicy
 ) {
     if (remoteUsage.isEmpty()) {
-        EmptyState("자녀 기기에서 역할 설정이 끝나고 백그라운드 동기화가 돌면 여기에 표시됩니다.")
+        EmptyState("자녀 기기에서 동기화가 한 번이라도 완료되면 여기에 주간 사용 기록이 표시됩니다.")
         return
     }
+
     remoteUsage.forEach { childUsage ->
         Text(
             text = childUsage.childName,
@@ -650,6 +743,7 @@ private fun AlertList(alerts: List<NightAlert>) {
         EmptyState("아직 제한 시간 사용 경고가 없습니다.")
         return
     }
+
     alerts.sortedByDescending { it.timestamp }.forEach { alert ->
         Card(
             modifier = Modifier
@@ -658,7 +752,10 @@ private fun AlertList(alerts: List<NightAlert>) {
             colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF1F2))
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("${alert.childName} 제한 시간 사용 감지", fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = "${alert.childName} 제한 시간 사용 감지",
+                    fontWeight = FontWeight.SemiBold
+                )
                 Text(
                     text = Instant.ofEpochMilli(alert.timestamp)
                         .atZone(ZoneId.systemDefault())
@@ -666,7 +763,10 @@ private fun AlertList(alerts: List<NightAlert>) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp)
                 )
-                Text(text = alert.message, modifier = Modifier.padding(top = 8.dp))
+                Text(
+                    text = alert.message,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
             }
         }
     }
@@ -690,10 +790,20 @@ private fun SummaryRow(
         )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(title, fontWeight = FontWeight.SemiBold)
-            Text("사용 시작 $start  |  사용 종료 $end", modifier = Modifier.padding(top = 6.dp))
             Text(
-                text = "총 사용 시간 $total${if (highlighted) "  |  제한 시간($restrictionLabel) 사용 감지" else ""}",
+                text = title,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "사용 시작 $start  |  사용 종료 $end",
+                modifier = Modifier.padding(top = 6.dp)
+            )
+            Text(
+                text = if (highlighted) {
+                    "총 사용 시간 $total  |  제한 시간($restrictionLabel) 사용 감지"
+                } else {
+                    "총 사용 시간 $total"
+                },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp)
             )
@@ -709,7 +819,10 @@ private fun EmptyState(text: String) {
             .background(Color(0xFFF8FAFC), RoundedCornerShape(20.dp))
             .padding(16.dp)
     ) {
-        Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            text = text,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
