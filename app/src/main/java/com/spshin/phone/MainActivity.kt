@@ -19,10 +19,12 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -49,9 +51,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -355,7 +359,7 @@ private fun DashboardScreen(
             if (settings.role == UserRole.CHILD) {
                 HighlightCard(
                     title = "주간 사용 기록",
-                    body = "날짜별 첫 사용 시각, 마지막 사용 시각, 총 사용 시간을 확인할 수 있습니다."
+                    body = "최근 7일 사용 시간을 그래프로 보면서 첫 사용과 마지막 사용 시각도 함께 확인할 수 있습니다."
                 ) {
                     UsageSummaryList(
                         summaries = localUsage,
@@ -372,7 +376,7 @@ private fun DashboardScreen(
 
                 HighlightCard(
                     title = "자녀 주간 사용 기록",
-                    body = "자녀 기기에서 동기화된 최근 7일 사용 기록을 확인할 수 있습니다."
+                    body = "자녀 기기에서 동기화된 최근 7일 사용 기록을 그래프로 확인할 수 있습니다."
                 ) {
                     RemoteUsageList(
                         remoteUsage = remoteUsage,
@@ -695,16 +699,10 @@ private fun UsageSummaryList(
         return
     }
 
-    summaries.sortedByDescending { it.date }.forEach { summary ->
-        SummaryRow(
-            title = summary.date.format(DateTimeFormatter.ofPattern("M월 d일")),
-            start = summary.firstUsed?.format(DateTimeFormatter.ofPattern("HH:mm")) ?: "-",
-            end = summary.lastUsed?.format(DateTimeFormatter.ofPattern("HH:mm")) ?: "-",
-            total = "${summary.totalMinutes}분",
-            highlighted = summary.nightUsageDetected,
-            restrictionLabel = policy.label()
-        )
-    }
+    UsageSummaryChart(
+        summaries = summaries,
+        restrictionLabel = policy.label()
+    )
 }
 
 @Composable
@@ -724,15 +722,150 @@ private fun RemoteUsageList(
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(bottom = 8.dp)
         )
-        childUsage.summaries.sortedByDescending { it.date }.forEach { summary ->
-            SummaryRow(
-                title = summary.date.format(DateTimeFormatter.ofPattern("M월 d일")),
-                start = summary.firstUsed?.format(DateTimeFormatter.ofPattern("HH:mm")) ?: "-",
-                end = summary.lastUsed?.format(DateTimeFormatter.ofPattern("HH:mm")) ?: "-",
-                total = "${summary.totalMinutes}분",
-                highlighted = summary.nightUsageDetected,
-                restrictionLabel = policy.label()
-            )
+        UsageSummaryChart(
+            summaries = childUsage.summaries,
+            restrictionLabel = policy.label()
+        )
+    }
+}
+
+@Composable
+private fun UsageSummaryChart(
+    summaries: List<DailyUsageSummary>,
+    restrictionLabel: String
+) {
+    val orderedSummaries = summaries.sortedByDescending { it.date }
+    val midpointMinutes = 4L * 60L
+    val chartMaxMinutes = midpointMinutes * 2L
+    val warningStartColor = Color(0xFFFDE68A)
+    val dangerColor = Color(0xFFDC2626)
+    val dateFormatter = DateTimeFormatter.ofPattern("M/d")
+    val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+
+    Column {
+        Text(
+            text = "사용시간 그래프",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(bottom = 10.dp)
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("0시간", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("4시간", style = MaterialTheme.typography.labelSmall, color = Color(0xFF2563EB), fontWeight = FontWeight.Bold)
+            Text("8시간+", style = MaterialTheme.typography.labelSmall, color = dangerColor, fontWeight = FontWeight.Bold)
+        }
+
+        orderedSummaries.forEach { summary ->
+            val exceedsMidpoint = summary.totalMinutes > midpointMinutes
+            val exceedsMax = summary.totalMinutes >= chartMaxMinutes
+            val fraction = (summary.totalMinutes.toFloat() / chartMaxMinutes.toFloat()).coerceIn(0f, 1f)
+            val warningProgress = ((summary.totalMinutes - midpointMinutes).toFloat() / midpointMinutes.toFloat())
+                .coerceIn(0f, 1f)
+            val warningEndColor = lerp(warningStartColor, dangerColor, warningProgress)
+            val barBrush = if (exceedsMax) {
+                Brush.horizontalGradient(listOf(dangerColor, Color(0xFFB91C1C)))
+            } else if (exceedsMidpoint) {
+                Brush.horizontalGradient(listOf(warningStartColor, warningEndColor))
+            } else {
+                Brush.horizontalGradient(listOf(Color(0xFF60A5FA), Color(0xFF2563EB)))
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = summary.date.format(dateFormatter),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                        .height(34.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(18.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(Color(0xFFE2E8F0))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .height(18.dp)
+                            .width(2.dp)
+                            .background(Color.White.copy(alpha = 0.95f))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth(if (fraction == 0f) 0.02f else fraction)
+                            .height(34.dp)
+                    ) {
+                        Text(
+                            text = "${summary.totalMinutes}분",
+                            color = when {
+                                exceedsMax -> dangerColor
+                                exceedsMidpoint -> warningEndColor
+                                else -> Color(0xFF2563EB)
+                            },
+                            fontWeight = if (exceedsMidpoint) FontWeight.Bold else FontWeight.Normal,
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(end = 2.dp)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .fillMaxWidth()
+                                .height(18.dp)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(barBrush)
+                        )
+                    }
+                }
+
+                Text(
+                    text = buildString {
+                        append("첫 사용 ")
+                        append(summary.firstUsed?.format(timeFormatter) ?: "-")
+                        append("  |  마지막 사용 ")
+                        append(summary.lastUsed?.format(timeFormatter) ?: "-")
+                        if (exceedsMidpoint) {
+                            append("  |  4시간 초과")
+                        }
+                        if (summary.nightUsageDetected) {
+                            append("  |  제한 시간(")
+                            append(restrictionLabel)
+                            append(") 사용 감지")
+                        }
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = when {
+                        exceedsMax -> Color(0xFFB91C1C)
+                        exceedsMidpoint -> warningEndColor
+                        summary.nightUsageDetected -> Color(0xFFB45309)
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
         }
     }
 }
@@ -768,45 +901,6 @@ private fun AlertList(alerts: List<NightAlert>) {
                     modifier = Modifier.padding(top = 8.dp)
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun SummaryRow(
-    title: String,
-    start: String,
-    end: String,
-    total: String,
-    highlighted: Boolean,
-    restrictionLabel: String
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 10.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (highlighted) Color(0xFFFFF7ED) else Color(0xFFF8FAFC)
-        )
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = title,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = "사용 시작 $start  |  사용 종료 $end",
-                modifier = Modifier.padding(top = 6.dp)
-            )
-            Text(
-                text = if (highlighted) {
-                    "총 사용 시간 $total  |  제한 시간($restrictionLabel) 사용 감지"
-                } else {
-                    "총 사용 시간 $total"
-                },
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp)
-            )
         }
     }
 }
